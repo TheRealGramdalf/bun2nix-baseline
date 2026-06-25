@@ -33,7 +33,7 @@ impl PackageDeserializer {
         match arity {
             1 => deserializer.deserialize_workspace_package(),
             2 => deserializer.deserialize_tarball_or_file_package(),
-            3 => deserializer.deserialize_git_or_github_package(),
+            3 => deserializer.deserialize_tarball_git_or_github_package(),
             4 => deserializer.deserialize_npm_package(),
             x => Err(Error::UnexpectedPackageEntryLength(x)),
         }
@@ -80,21 +80,26 @@ impl PackageDeserializer {
         Ok(Package::new(npm_identifier_raw, fetcher))
     }
 
-    /// # Deserialize a Git or Github Package
+    /// # Deserialize a Tarball, Git or Github Package
     ///
-    /// Deserialize a git or github package from it's bun lockfile representation
+    /// Deserialize a tarball, git or github package from it's bun
+    /// lockfile representation
     ///
-    /// This is found in the source as a tuple of arity 3
-    pub fn deserialize_git_or_github_package(mut self) -> Result<Package> {
-        let mut id = swap_remove_value(&mut self.values, 0);
+    /// These are grouped together as all three lockfile
+    /// representations are a tuple of arity 3, hence the
+    /// specifier prefix decides between them - `http` is a
+    /// tarball (bun records an integrity hash for these), `github:`
+    /// is a github package, and anything else is a git package
+    pub fn deserialize_tarball_git_or_github_package(mut self) -> Result<Package> {
+        let id = swap_remove_value(&mut self.values, 0);
+        let specifier = drain_package_specifier(id).ok_or(Error::NoAtInPackageIdentifier)?;
 
-        let at_pos = id.rfind('@').ok_or(Error::NoAtInPackageIdentifier)?;
-        id.drain(..=at_pos);
-
-        if id.starts_with("github:") {
-            Self::deserialize_github_package(id)
+        if specifier.starts_with("http") {
+            Self::deserialize_tarball_package(specifier)
+        } else if specifier.starts_with("github:") {
+            Self::deserialize_github_package(specifier)
         } else {
-            Self::deserialize_git_package(id)
+            Self::deserialize_git_package(specifier)
         }
     }
 
@@ -158,7 +163,7 @@ impl PackageDeserializer {
     /// tarballs
     pub fn deserialize_tarball_or_file_package(mut self) -> Result<Package> {
         let id = swap_remove_value(&mut self.values, 0);
-        let path = Self::drain_after_substring(id, "@").ok_or(Error::NoAtInPackageIdentifier)?;
+        let path = drain_package_specifier(id).ok_or(Error::NoAtInPackageIdentifier)?;
 
         if path.starts_with("http") {
             Self::deserialize_tarball_package(path)
@@ -271,6 +276,46 @@ pub fn swap_remove_value(values: &mut Values, index: usize) -> String {
     debug_assert!(value.ends_with('"'), "Value should end with a quote");
 
     value.drain(1..value.len() - 1).collect()
+}
+
+/// # Drain Package Specifier
+///
+/// Consumes a bun package identifier of the form `<name>@<specifier>` and
+/// returns the owned `<specifier>` (a version, tarball url or local path).
+///
+/// A package name may be scoped (e.g. `@solidjs/start`), so the leading `@` is
+/// part of the name rather than the separator. The specifier may also contain
+/// `@` characters, such as the tarball url `https://pkg.pr.new/@scope/pkg@rev`,
+/// hence we split on the first `@` after any leading scope rather than the last.
+///
+///```rust
+/// use bun2nix::lockfile::drain_package_specifier;
+///
+/// assert_eq!(
+///     drain_package_specifier("zod@https://registry.npmjs.org/zod/-/zod-3.21.4.tgz".to_owned()),
+///     Some("https://registry.npmjs.org/zod/-/zod-3.21.4.tgz".to_owned())
+/// );
+///
+/// assert_eq!(
+///     drain_package_specifier("@solidjs/start@https://pkg.pr.new/@solidjs/start@dfb2020".to_owned()),
+///     Some("https://pkg.pr.new/@solidjs/start@dfb2020".to_owned())
+/// );
+///
+/// assert_eq!(
+///     drain_package_specifier("@my/pkg@git+ssh://git@github.com/my/pkg.git#abc123".to_owned()),
+///     Some("git+ssh://git@github.com/my/pkg.git#abc123".to_owned())
+/// );
+///
+/// assert_eq!(
+///     drain_package_specifier("no-at-here".to_owned()),
+///     None
+/// );
+/// ```
+pub fn drain_package_specifier(mut id: String) -> Option<String> {
+    let search_start = usize::from(id.starts_with('@'));
+    let sep = id[search_start..].find('@')? + search_start;
+
+    Some(id.drain(sep + 1..).collect())
 }
 
 /// # Split Once (Owned)
