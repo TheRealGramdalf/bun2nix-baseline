@@ -22,7 +22,7 @@ path = "src/lib.rs"
 
 [package]
 name = "bun2nix"
-version = "2.1.0"
+version = "2.1.1"
 edition = "2024"
 
 [profile.release]
