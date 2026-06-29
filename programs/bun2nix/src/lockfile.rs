@@ -15,7 +15,7 @@ use crate::{
 mod package_deserializer;
 mod package_visitor;
 pub use package_deserializer::{
-    PackageDeserializer, drop_prefix, split_once_owned, swap_remove_value,
+    PackageDeserializer, drain_package_specifier, drop_prefix, split_once_owned, swap_remove_value,
 };
 pub use package_visitor::PackageVisitor;
 
