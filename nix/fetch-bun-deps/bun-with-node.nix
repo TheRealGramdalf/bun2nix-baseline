@@ -17,6 +17,14 @@ in
 
   config.perSystem =
     { pkgs, ... }:
+    let
+      bun = pkgs.bun.overrideAttrs {
+          passthru.sources."x86_64-linux" = pkgs.fetchurl {
+            url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-linux-x64-baseline.zip";
+            hash = "sha256-nYokKSpwaAkCBdqsCloiP19pc29Sh+N7+I07QDHtx1A=";
+          };
+        };
+    in
     {
       fetchBunDeps.bunWithNode =
         {
@@ -31,7 +39,7 @@ in
             dontBuild = true;
 
             installPhase = ''
-              cp -r "${pkgs.bun}/." "$out"
+              cp -r "${bun}/." "$out"
               chmod u+w "$out/bin"
 
               for node_binary in "node" "npm" "npx"; do
